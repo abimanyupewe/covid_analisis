@@ -1,32 +1,44 @@
-# 📊 Laporan Analisis Data COVID-19
+# 📊 Laporan Analisis Data COVID-19 (Big Data Techinal Report)
 
-## 1. Pendahuluan
-Proyek ini bertujuan untuk menganalisis penyebaran, tren, dan tingkat fatalitas pandemi COVID-19 secara global menggunakan teknologi Big Data (Apache Spark). Dengan memproses jutaan baris data, dashboard ini menyajikan visualisasi interaktif untuk pengambilan wawasan (insight) yang mendalam.
+## 1. Eksekutif Summary
+Laporan ini menyajikan hasil analisis data pandemi COVID-19 berskala global yang diproses menggunakan **Apache Spark**. Dashboard ini memberikan visibilitas terhadap metrics kunci seperti **Total Kasus Terkonfirmasi**, **Total Kematian**, serta indikator turunan berupa **Case Fatality Rate (CFR)** dan tren penyebaran harian (*Moving Average*).
 
-## 2. Hasil Analisis Visualisasi
+## 2. Metodologi Data Engineering
+Proses pengolahan data dilakukan dengan tahapan sebagai berikut:
+1.  **Ingestion & Cleaning**: Data bersumber dari OWID (HDFS Data Lake), difilter untuk membuang baris agregat benua (`continent IS NOT NULL`) dan memastikan validitas data kasus (`new_cases IS NOT NULL`).
+2.  **Window Functions**: Penerapan `Spark Window` (range -6 sampai 0) untuk menghitung **Moving Average 7-Hari**, yang krusial untuk menghaluskan fluktuasi harian (noise) akibat keterlambatan pelaporan di akhir pekan.
+3.  **Aggregation Strategy**: Penggunaan operasi `groupBy` dan `agg` teroptimasi di Spark sebelum konversi ke Pandas untuk visualisasi, menjaga performa tetap tinggi (Lazy Evaluation).
 
-### A. Distribusi Geografis (Peta Global)
-*   **Temuan**: Visualisasi peta choropleth menunjukkan bahwa **Amerika Serikat, India, dan Brasil** merupakan negara dengan akumulasi kasus tertinggi (warna merah pekat).
-*   **Insight**: Penyebaran virus tidak merata dan sangat berkorelasi dengan mobilitas internasional serta kepadatan penduduk di negara-negara besar tersebut. Sebaliknya, wilayah Afrika dan sebagian Oseania menunjukkan akumulasi kasus yang relatif lebih rendah berdasarkan data yang dilaporkan.
+## 3. Hasil Analisis Visualisasi
 
-### B. Analisis Tren Waktu (Moving Average 7-Hari)
-*   **Temuan**: Grafik garis rata-rata bergerak (moving average) memperjelas adanya **gelombang lonjakan kasus (waves)** yang berulang.
-*   **Insight**: Lonjakan kasus sering kali tidak terjadi secara serentak di seluruh dunia. Misalnya, saat gelombang Delta memuncak di India (Asia), negara-negara Eropa mungkin sedang mengalami penurunan kasus. Hal ini mengindikasikan bahwa varian baru membutuhkan waktu untuk menyebar antar-benua, memberikan "jeda waktu" bagi negara lain untuk bersiap.
+### A. Distribusi Geografis (Global Heatmap)
+*   **Visualisasi**: *Choropleth Map* berdasarkan akumulasi `new_cases`.
+*   **Temuan**: Konsentrasi kasus tertinggi terpusat di negara-negara dengan populasi besar dan mobilitas tinggi. **Amerika Serikat, India, dan Brasil** secara konsisten muncul sebagai "hotspot" global.
+*   **Implikasi**: Penyebaran virus berkorelasi kuat dengan densitas populasi dan konektivitas internasional.
 
-### C. Ranking Global & Fatalitas
-*   **Temuan**: Berdasarkan Bar Chart "Top 10 Negara dengan Kematian Tertinggi", **Amerika Serikat** memimpin angka kematian absolut, diikuti oleh Brasil dan India.
-*   **Insight**: Namun, tingginya angka kematian absolut tidak selalu mencerminkan penanganan medis yang buruk, melainkan bisa disebabkan oleh besarnya populasi yang terinfeksi. Oleh karena itu, diperlukan analisis lanjutan menggunakan *Case Fatality Rate* (CFR).
+### B. Analisis Mortalitas Absolut (Top 10 Rankings)
+*   **Visualisasi**: *Bar Chart* horizontal untuk 10 negara dengan `TotalDeaths` tertinggi.
+*   **Temuan**: Secara absolut, negara-negara besar mendominasi angka kematian. Namun, angka absolut ini bias populasi dan belum tentu mencerminkan kegagalan sistem kesehatan sepenuhnya.
 
-### D. Case Fatality Rate (CFR) pada Negara Terinsdampak
-*   **Temuan**: Grafik Bar Chart *Case Fatality Rate* menunjukkan anomali menarik. Meskipun AS memiliki jumlah kasus tertinggi, **Meksiko atau Peru** (tergantung data terkini) seringkali memiliki persentase CFR yang jauh lebih tinggi (>5-9% pada periode awal).
-*   **Insight**: Tingginya CFR di negara berkembang dibandingkan negara maju (seperti AS/Eropa dengan CFR ~1-2%) mengindikasikan adanya kesenjangan dalam **fasiitas kesehatan, kapasitas testing, dan akses vaksin**. Negara dengan testing rendah cenderung hanya mendeteksi kasus parah, sehingga pembagi (denominator) kecil dan CFR terlihat sangat tinggi.
+### C. Efektivitas Penanganan Medis (Case Fatality Rate / CFR)
+*   **Visualisasi**: *Bar Chart* yang membandingkan CFR (%) pada Top 10 negara dengan kasus terbanyak.
+*   **Formula**: $CFR = (\frac{Total Deaths}{Total Cases}) \times 100\%$
+*   **Insight Kritis**: Terdapat anomali di mana negara berkembang (seperti **Meksiko** atau **Peru**) seringkali mencatat CFR yang jauh lebih tinggi (>5-9%) dibandingkan negara maju (~1-2%).
+*   **Penyebab**: Fenomena "Iceberg Effect" pada testing. Negara dengan kapasitas testing rendah cenderung hanya mendeteksi kasus bergejala berat (denominator kecil), sehingga rasio kematian terlihat melambung tinggi.
 
-### E. Variabilitas Distribusi Harian (Box Plot)
-*   **Temuan**: Box plot menunjukkan bahwa **Indonesia** memiliki rentang sebaran kasus harian yang lebar dengan banyak *outliers* di bagian atas.
-*   **Insight**: *Outliers* ekstrem ini mencerminkan kejadian "super-spreader events" atau puncak gelombang varian tertentu (seperti varian Delta pada Juli 2021). Stabilitas kurva landai (tanpa outliers tinggi) lebih jarang ditemukan di negara dengan kepadatan penduduk tinggi.
+### D. Dinamika Gelombang Pandemi (Regional Case Study)
+*   **Visualisasi**: *Multi-line Chart* dengan Moving Average 7-hari (Studi Kasus: Indonesia, Malaysia, Singapore).
+*   **Temuan**: Kurva pandemi tidak linear melainkan berbentuk gelombang (*waves*). Puncak gelombang seringkali tidak sinkron antar negara, mencerminkan adanya jeda waktu (*time-lag*) penyebaran varian baru lintas perbatasan.
 
-## 3. Kesimpulan Teknis
-Penggunaan **Apache Spark** memungkinkan pemrosesan *dataset* berukuran besar secara *in-memory* dengan cepat. Teknik *Window Function* sangat krusial dalam menghaluskan data yang fluktuatif (noise) melalui *Moving Average*, sehingga pola tren jangka panjang dapat diidentifikasi dengan lebih akurat dibandingkan hanya melihat data harian mentah.
+## 4. Kesimpulan Utama
+Berdasarkan visualisasi dan pemrosesan data, dapat disimpulkan 3 poin utama:
+1.  **Pusat Episentrum**: Pandemi memiliki korelasi kuat dengan populasi. Tiga negara terbesar (AS, India, Brasil) secara konsisten menjadi episentrum global baik dalam jumlah kasus maupun kematian absolut.
+2.  **Kesenjangan Kualitas Data & Penanganan**: Tingginya CFR di negara berkembang (>5%) dibandingkan negara maju (~1-2%) kemungkinan besar bukan hanya mencerminkan kualitas perawatan medis, tetapi juga **bias deteksi (testing bias)**. Minimnya testing membuat hanya kasus kritis yang tercatat, melambungkan angka fatalitas statistik.
+3.  **Pola Siklus (Waves)**: Pandemi tidak terjadi serentak. Grafik *Moving Average* membuktikan adanya jeda waktu (*lag*) antar-benua, yang seharusnya memberikan waktu bagi negara lain untuk memitigasi gelombang varian baru yang sedang terjadi di benua lain.
+
+## 5. Kesimpulan Teknis & Rekomendasi Sistem
+*   **Performa Big Data**: *Apache Spark* terbukti sangat efisien dalam melakukan agregasi data global yang masif, memungkinkan dashboard yang responsif tanpa pre-calculation yang berlebihan.
+*   **Next Steps**: Untuk analisis yang lebih holistik, disarankan mengintegrasikan data **Vaksinasi** dan **Indeks Ketatnya Kebijakan (Stringency Index)** untuk mengukur efektivitas intervensi pemerintah secara kuantitatif.
 
 ---
-*Laporan ini disusun berdasarkan output visualisasi dashboard `covid_analisis.py`.*
+*Generated by System Analysis 2026*

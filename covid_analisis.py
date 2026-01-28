@@ -120,11 +120,10 @@ def load_and_clean_data():
         st.error(f"Gagal koneksi ke HDFS: {e}")
         return None
 
-    # Filter Region/Non-Negara
-    list_filter = ["World", "Asia", "Europe", "North America", "South America", "Africa", "European Union", "High income"]
-    
     # MANIPULASI 1: FILTERING & TYPE CASTING
-    df_clean = df.filter(~col("location").isin(list_filter)) \
+    # Menggunakan filter continent isNotNull adalah cara yang lebih robust untuk mengambil data negara saja.
+    # Data agregat seperti 'World', 'Asia', 'High income' biasanya memiliki continent = NULL.
+    df_clean = df.filter(col("continent").isNotNull()) \
                  .withColumn("Tanggal", to_date(col("date"), "yyyy-MM-dd")) \
                  .filter(col("new_cases").isNotNull())
     
@@ -144,28 +143,33 @@ with st.sidebar:
     st.markdown("## 🎛️ Kontrol Analisis")
     
     # Ambil daftar negara (convert to list python - ringan)
-    country_list = [row.location for row in df_spark.select("location").distinct().sort("location").collect()]
+    # Ambil daftar negara
+    country_list_raw = [row.location for row in df_spark.select("location").distinct().sort("location").collect()]
+    country_options = ["All"] + country_list_raw
     
-    selected_countries = st.multiselect(
+    selected_input = st.multiselect(
         "Pilih Negara untuk Perbandingan:",
-        options=country_list,
+        options=country_options,
         default=["Indonesia", "Malaysia", "Singapore"]
     )
+
+    if "All" in selected_input:
+        selected_countries = country_list_raw
+        selected_display_text = "Semua Negara"
+    else:
+        selected_countries = selected_input
+        selected_display_text = ", ".join(selected_countries)
     
-    analysis_mode = st.radio(
-        "Mode Analisis:",
-        ["Overview Global", "Tren Waktu", "Analisis Fatalitas", "Analisis Distribusi & Ranking", "Data Mentah"]
-    )
-    
+    # Mode Analisis dihapus untuk penyederhanaan "Essential Dashboard"
     st.markdown("---")
     st.info("Data Engine: **Apache Spark 3.5**\nData Source: **HDFS**")
 
 # ==========================================
-# 4. DASHBOARD LOGIC
+# 4. DASHBOARD LOGIC (SIMPLIFIED ESSENTIALS)
 # ==========================================
 
-st.title("Dashboard Analisis COVID-19 Terintegrasi")
-st.markdown("<h3 style='color: #64748b !important; font-weight: 400;'>Platform Big Data Analytics - UAS Semester 5</h3>", unsafe_allow_html=True)
+st.title("Dashboard Analisis COVID-19")
+st.markdown("<h3 style='color: #64748b !important; font-weight: 400;'>Essential Metrics & Trends</h3>", unsafe_allow_html=True)
 st.markdown("---")
 
 # Custom Plotly Template for Consistency (Light Mode)
@@ -182,249 +186,168 @@ def update_layout_style(fig, title):
         legend=dict(
             bgcolor='rgba(255, 255, 255, 0.8)',
             bordercolor='#e2e8f0',
-            borderwidth=1
+            borderwidth=1,
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
         )
     )
     return fig
 
-if analysis_mode == "Overview Global":
-    # --- PETA SEBARAN GLOBAL (Baru) ---
-    st.subheader("Distribusi Geografis")
-    
-    # Agregasi data untuk peta (Total Kasus per Negara)
-    # Kita ambil max total_cases karena itu adalah cumulative count
-    df_map = df_spark.groupBy("location").agg(
-        spark_sum("new_cases").alias("TotalCases"),
-        spark_sum("new_deaths").alias("TotalDeaths")
-    )
-    pdf_map = df_map.toPandas()
-    
-    # Visualisasi Map
-    fig_map = px.choropleth(
-        pdf_map,
-        locations="location",
-        locationmode="country names",
-        color="TotalCases",
-        hover_name="location",
-        hover_data=["TotalDeaths"],
-        color_continuous_scale="Reds",
-        template="plotly_white" # Light template
-    )
-    fig_map.update_geos(
-        bgcolor='rgba(0,0,0,0)', 
-        showcountries=True, countrycolor="#cbd5e1",
-        showcoastlines=False,
-        showland=True, landcolor="#f1f5f9"
-    )
-    fig_map = update_layout_style(fig_map, "Peta Sebaran Global: Total Kasus Terkonfirmasi")
-    st.plotly_chart(fig_map, use_container_width=True)
+# --- 1. GLOBAL KEY METRICS ---
+col1, col2 = st.columns(2)
 
-    # --- BAGIAN TOP RANKING ---
-    st.markdown("---")
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Ranking Global")
-        
-        # MANIPULASI 3: AGGREGATION & RANKING
-        df_rank = df_spark.groupBy("location").agg(spark_sum("new_deaths").alias("TotalDeaths"))
-        window_rank = Window.orderBy(desc("TotalDeaths"))
-        df_top10 = df_rank.withColumn("Rank", rank().over(window_rank)).filter(col("Rank") <= 10)
-        
-        pdf_top10 = df_top10.toPandas()
-        
-        fig_bar = px.bar(
-            pdf_top10, 
-            x='TotalDeaths', 
-            y='location', 
-            orientation='h',
-            color='TotalDeaths',
-            color_continuous_scale='Reds',
-            text_auto='.2s'
-        )
-        fig_bar = update_layout_style(fig_bar, "Top 10 Negara dengan Angka Kematian Tertinggi")
-        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
-        st.plotly_chart(fig_bar, use_container_width=True)
+total_cases_world = df_spark.agg(spark_sum("new_cases")).collect()[0][0]
+total_deaths_world = df_spark.agg(spark_sum("new_deaths")).collect()[0][0]
 
-    with col2:
-        st.subheader("Key Performance Indicators")
-        total_cases_world = df_spark.agg(spark_sum("new_cases")).collect()[0][0]
-        total_deaths_world = df_spark.agg(spark_sum("new_deaths")).collect()[0][0]
-        
-        st.markdown(f"""
-        <div class="metric-container">
-            <div class="metric-label">Total Kasus Terkonfirmasi</div>
-            <div class="metric-value">{total_cases_world:,.0f}</div>
-        </div>
-        <div class="metric-container">
-            <div class="metric-label">Total Kematian Dilaporkan</div>
-            <div class="metric-value">{total_deaths_world:,.0f}</div>
-        </div>
-        """, unsafe_allow_html=True)
+with col1:
+    st.markdown(f"""
+    <div class="metric-container">
+        <div class="metric-label">Total Kasus Global</div>
+        <div class="metric-value">{total_cases_world:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-elif analysis_mode == "Tren Waktu":
-    # --- BAGIAN TREND ANALYSIS (LINE CHART) ---
-    st.subheader(f"Tren Penyebaran Virus: {', '.join(selected_countries)}")
-    
-    # Filter Data di Spark
-    df_filtered = df_spark.filter(col("location").isin(selected_countries))
-    
-    # MANIPULASI 2: WINDOW FUNCTION (Moving Average)
-    window_trend = Window.partitionBy("location").orderBy("Tanggal").rowsBetween(-6, 0)
-    df_trend = df_filtered.withColumn("MovingAvg", avg("new_cases").over(window_trend))
-    
-    pdf_trend = df_trend.select("Tanggal", "location", "MovingAvg", "new_cases").toPandas()
-    
-    tab1, tab2 = st.tabs(["Smoothed (7-Day Avg)", "Harian (Raw)"])
-    
-    with tab1:
-        fig_line = px.line(
-            pdf_trend, x="Tanggal", y="MovingAvg", color="location",
-            color_discrete_sequence=px.colors.qualitative.Bold,
-            labels={"MovingAvg": "Kasus Baru (7-Day Avg)"}
-        )
-        fig_line = update_layout_style(fig_line, "Rata-rata Bergerak 7-Hari")
-        st.plotly_chart(fig_line, use_container_width=True)
-        
-    with tab2:
-        fig_raw = px.line(
-            pdf_trend, x="Tanggal", y="new_cases", color="location",
-            color_discrete_sequence=px.colors.qualitative.Pastel,
-            labels={"new_cases": "Kasus Baru Harian"}
-        )
-        fig_raw = update_layout_style(fig_raw, "Kasus Harian Aktual")
-        st.plotly_chart(fig_raw, use_container_width=True)
+with col2:
+    st.markdown(f"""
+    <div class="metric-container">
+        <div class="metric-label">Total Kematian Global</div>
+        <div class="metric-value">{total_deaths_world:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-elif analysis_mode == "Analisis Fatalitas":
-    # --- BAGIAN ANALISIS LANJUTAN ---
-    st.subheader("Analisis Rasio Kematian (CFR)")
-    
-    # Agregasi Total per Negara pilihan
-    df_agg = df_spark.filter(col("location").isin(selected_countries)) \
-        .groupBy("location") \
-        .agg(
-            spark_sum("new_cases").alias("TotalCases"),
-            spark_sum("new_deaths").alias("TotalDeaths")
-        )
-    
-    pdf_agg = df_agg.toPandas()
-    pdf_agg['CFR (%)'] = (pdf_agg['TotalDeaths'] / pdf_agg['TotalCases']) * 100
-    
-    col_a, col_b = st.columns(2)
-    
-    with col_a:
-        fig_scatter = px.scatter(
-            pdf_agg, x="TotalCases", y="TotalDeaths",
-            size="CFR (%)", color="location",
-            hover_name="location", log_x=True, log_y=True,
-            color_discrete_sequence=px.colors.qualitative.Prism,
-            size_max=30, # Diperkecil agar tidak menutupi
-            labels={
-                "TotalCases": "Total Kasus (Log)", 
-                "TotalDeaths": "Total Kematian (Log)",
-                "CFR (%)": "Case Fatality Rate (%)"
-            }
-        )
-        fig_scatter = update_layout_style(fig_scatter, "Hubungan Kasus vs Kematian")
-        # Pindahkan legend ke bawah agar chart lebih lebar
-        fig_scatter.update_layout(
-            legend=dict(
-                orientation="h", 
-                yanchor="top", 
-                y=-0.2, 
-                xanchor="center", 
-                x=0.5
-            ),
-            margin=dict(l=20, r=20, t=60, b=80) # Tambah margin bawah untuk legend
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-        
-    with col_b:
-        fig_pie = px.pie(
-            pdf_agg, values='TotalDeaths', names='location',
-            hole=0.5,
-            color_discrete_sequence=px.colors.sequential.RdBu
-        )
-        fig_pie = update_layout_style(fig_pie, "Proporsi Kematian Relatif")
-        # Pindahkan legend ke bawah
-        fig_pie.update_layout(
-            legend=dict(
-                orientation="h", 
-                yanchor="top", 
-                y=-0.2, 
-                xanchor="center", 
-                x=0.5
-            ),
-            margin=dict(l=20, r=20, t=60, b=80)
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
+# --- 1.5 PETA SEBARAN GLOBAL (Restored) ---
+st.subheader("Distribusi Geografis")
 
-elif analysis_mode == "Analisis Distribusi & Ranking":
-    st.subheader("Analisis Distribusi Regional & Ranking Global")
-    
-    df_dist = df_spark.filter(col("location").isin(selected_countries)) \
-                      .select("location", "Tanggal", "new_cases")
-    pdf_dist = df_dist.toPandas()
-    
-    # Box Plot
-    fig_box = px.box(
-        pdf_dist, x="location", y="new_cases",
-        color="location",
-        points="outliers",
-        color_discrete_sequence=px.colors.qualitative.Pastel
-    )
-    fig_box = update_layout_style(fig_box, "Distribusi Kasus Harian (Box Plot)")
-    st.plotly_chart(fig_box, use_container_width=True)
-    
-    # Bar Chart: Case Fatality Rate Top 10 Countries by Total Cases
-    # 1. Agregasi Global untuk mencari Top 10 by Cases
-    df_top_cfr = df_spark.groupBy("location").agg(
-        spark_sum("new_cases").alias("TotalCases"),
-        spark_sum("new_deaths").alias("TotalDeaths")
-    ).orderBy(desc("TotalCases")).limit(10)
-    
-    pdf_top_cfr = df_top_cfr.toPandas()
-    pdf_top_cfr['CFR'] = (pdf_top_cfr['TotalDeaths'] / pdf_top_cfr['TotalCases']) * 100
-    
-    # Format label untuk text
-    pdf_top_cfr['CFR_Label'] = pdf_top_cfr['CFR'].map('{:,.2f}%'.format)
+# Agregasi data untuk peta (Total Kasus per Negara)
+# Kita ambil max total_cases karena itu adalah cumulative count
+df_map = df_spark.groupBy("location").agg(
+    spark_sum("new_cases").alias("TotalCases"),
+    spark_sum("new_deaths").alias("TotalDeaths")
+)
+pdf_map = df_map.toPandas()
 
-    fig_bar_cfr = px.bar(
-        pdf_top_cfr, 
-        x="location", 
-        y="CFR",
-        text="CFR_Label",
-        title="Case Fatality Rate (%) in Top 10 Countries by Total Cases",
-        color_discrete_sequence=["#9b59b6"] # Warna Ungu seperti referensi
-    )
-    
-    fig_bar_cfr.update_layout(
-        font=dict(family="Inter, sans-serif", size=12, color="#64748b"),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        xaxis_title="Country",
-        yaxis_title="Fatality Rate (%)",
-        margin=dict(l=20, r=20, t=80, b=100), # Margin diperbesar agar tidak terpotong
-        title_font=dict(size=16, color="#0f172a")
-    )
-    # Menampilkan teks di atas bar
-    fig_bar_cfr.update_traces(textposition='outside')
-    
-    st.plotly_chart(fig_bar_cfr, use_container_width=True)
+# Visualisasi Map
+fig_map = px.choropleth(
+    pdf_map,
+    locations="location",
+    locationmode="country names",
+    color="TotalCases",
+    hover_name="location",
+    hover_data=["TotalDeaths"],
+    color_continuous_scale="Reds",
+    template="plotly_white" # Light template
+)
+fig_map.update_geos(
+    bgcolor='rgba(0,0,0,0)', 
+    showcountries=True, countrycolor="#cbd5e1",
+    showcoastlines=False,
+    showland=True, landcolor="#f1f5f9"
+)
+fig_map = update_layout_style(fig_map, "Peta Sebaran Global: Total Kasus Terkonfirmasi")
+st.plotly_chart(fig_map, use_container_width=True)
 
-elif analysis_mode == "Data Mentah":
-    st.subheader("Eksplorasi Data Mentah")
+# --- 2. TOP 10 RANKING (Bar Chart) ---
+st.subheader("Top 10 Negara dengan Kematian Tertinggi")
+# MANIPULASI: AGGREGATION & RANKING (Simple Top 10)
+df_rank = df_spark.groupBy("location").agg(spark_sum("new_deaths").alias("TotalDeaths"))
+# Note: Spark optimization - filtering top 10 before collecting is efficient
+df_top10 = df_rank.orderBy(desc("TotalDeaths")).limit(10)
+pdf_top10 = df_top10.toPandas()
+
+fig_bar = px.bar(
+    pdf_top10, 
+    x='TotalDeaths', 
+    y='location', 
+    orientation='h',
+    color='TotalDeaths',
+    color_continuous_scale='Reds',
+    text_auto='.2s'
+)
+fig_bar = update_layout_style(fig_bar, "Top 10 Negara dengan Angka Kematian Tertinggi (Total)")
+fig_bar.update_layout(yaxis={'categoryorder':'total ascending'})
+st.plotly_chart(fig_bar, use_container_width=True)
+
+# --- 2.5 ANALISIS FATALITAS (CFR) ---
+st.subheader("Analisis Fatalitas (Case Fatality Rate)")
+st.caption("Membandingkan tingkat kematian pada 10 negara dengan jumlah kasus tertinggi.")
+
+# Agregasi Global untuk mencari Top 10 by Cases
+df_top_cfr = df_spark.groupBy("location").agg(
+    spark_sum("new_cases").alias("TotalCases"),
+    spark_sum("new_deaths").alias("TotalDeaths")
+).orderBy(desc("TotalCases")).limit(10)
+
+pdf_top_cfr = df_top_cfr.toPandas()
+pdf_top_cfr['CFR'] = (pdf_top_cfr['TotalDeaths'] / pdf_top_cfr['TotalCases']) * 100
+
+# Format label untuk text
+pdf_top_cfr['CFR_Label'] = pdf_top_cfr['CFR'].map('{:,.2f}%'.format)
+
+fig_bar_cfr = px.bar(
+    pdf_top_cfr, 
+    x="location", 
+    y="CFR",
+    text="CFR_Label",
+    title="Case Fatality Rate (%) in Top 10 Countries by Total Cases",
+    color_discrete_sequence=["#9b59b6"] # Warna Ungu
+)
+
+fig_bar_cfr.update_layout(
+    font=dict(family="Inter, sans-serif", size=12, color="#64748b"),
+    plot_bgcolor='rgba(0,0,0,0)',
+    paper_bgcolor='rgba(0,0,0,0)',
+    xaxis_title="Negara",
+    yaxis_title="Fatality Rate (%)",
+    margin=dict(l=20, r=20, t=60, b=40),
+    title_font=dict(size=18, color="#0f172a") # Sesuaikan ukuran font title agar konsisten
+)
+# Menampilkan teks di atas bar
+fig_bar_cfr.update_traces(textposition='outside')
+
+st.plotly_chart(fig_bar_cfr, use_container_width=True)
+
+# --- 3. TREND LINE (Time Series) ---
+st.subheader(f"Tren Kasus Harian: {selected_display_text}")
+
+# Filter Data di Spark
+df_filtered = df_spark.filter(col("location").isin(selected_countries))
+
+# MANIPULASI: WINDOW FUNCTION (Moving Average)
+window_trend = Window.partitionBy("location").orderBy("Tanggal").rowsBetween(-6, 0)
+df_trend = df_filtered.withColumn("MovingAvg", avg("new_cases").over(window_trend))
+
+pdf_trend = df_trend.select("Tanggal", "location", "MovingAvg", "new_cases").toPandas()
+
+fig_line = px.line(
+    pdf_trend, x="Tanggal", y="MovingAvg", color="location",
+    color_discrete_sequence=px.colors.qualitative.Bold,
+    labels={"MovingAvg": "Kasus Baru (7-Day Avg)"}
+)
+fig_line = update_layout_style(fig_line, "Rata-rata Bergerak 7-Hari")
+st.plotly_chart(fig_line, use_container_width=True)
+
+# --- 4. CHECK DATA SECTION (Raw Data) ---
+with st.expander("🔍 Lihat Data Mentah & Pengecekan Kualitas Data"):
+    st.write("Menampilkan sampel data yang digunakan untuk verifikasi cleaning.")
     
-    limit_rows = st.slider("Jumlah Baris Data:", 100, 5000, 1000)
+    # User Control for Row Limit
+    limit_rows = st.slider("Jumlah Baris Data yang Ditampilkan:", min_value=100, max_value=5000, value=1000, step=100)
     
-    df_show = df_spark.filter(col("location").isin(selected_countries)) \
-                      .select("location", "Tanggal", "new_cases", "new_deaths", "total_cases") \
-                      .orderBy(desc("Tanggal")) \
-                      .limit(limit_rows)
-                      
-    st.dataframe(df_show.toPandas(), use_container_width=True)
+    # Check null continents
+    null_continent_count = df_filtered.filter(col("continent").isNull()).count()
+    if null_continent_count == 0:
+        st.success("✅ Validasi Data Bersih: Tidak ada continent NULL (Data Agregat/World dihapus).")
+    else:
+        st.warning(f"⚠️ Ditemukan {null_continent_count} baris dengan Continent NULL.")
+
+    # Show data with dynamic limit
+    st.dataframe(pdf_trend.head(limit_rows), use_container_width=True)
     
-    csv = df_show.toPandas().to_csv(index=False).encode('utf-8')
+    # Download button (based on displayed data)
+    csv = pdf_trend.head(limit_rows).to_csv(index=False).encode('utf-8')
     st.download_button(
         "Download Data ini sebagai CSV",
         csv,

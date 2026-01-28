@@ -42,21 +42,20 @@ Proses pembersihan dilakukan secara *in-memory* menggunakan PySpark untuk menjam
 
 **Kode Implementasi:**
 ```python
-# Filter Region/Non-Negara
-list_filter = ["World", "Asia", "Europe", "North America", "South America", "Africa", "European Union", "High income"]
-
-df_clean = df.filter(~col("location").isin(list_filter)) \  # Hapus data agregat benua
-             .withColumn("Tanggal", to_date(col("date"), "yyyy-MM-dd")) \ # Perbaiki format tanggal
-             .filter(col("new_cases").isNotNull()) # Hapus data kosong (NULL)
+# MANIPULASI 1: FILTERING & TYPE CASTING
+# Menggunakan filter continent isNotNull adalah cara yang lebih robust untuk mengambil data negara saja.
+df_clean = df.filter(col("continent").isNotNull()) \
+             .withColumn("Tanggal", to_date(col("date"), "yyyy-MM-dd")) \
+             .filter(col("new_cases").isNotNull())
 ```
 
 ## 4. Tiga (3) Tahapan Manipulasi Data Kompleks
 Sesuai persyaratan proyek Big Data, berikut adalah 3 manipulasi utama yang diterapkan:
 
 ### Manipulasi 1: Advanced Filtering & Type Casting
-Mengubah tipe data string menjadi objek tanggal dan memfilter entitas non-negara secara efisien menggunakan operator negasi (`~`).
+Mengubah tipe data string menjadi objek tanggal dan memfilter entitas non-negara secara efisien menggunakan pengecekan kolom `continent`.
 
-Filtering Agregat: Menghapus baris yang bukan negara (seperti "World", "Asia", "High income") agar analisis per negara tidak bias.
+Filtering Agregat: Menggunakan `col("continent").isNotNull()` untuk secara otomatis menghapus baris data agregat (seperti "World", "Asia", "High income") yang nilai benuanya kosong. Ini lebih *robust* daripada _hardcoded exclusion list_.
 
 Type Casting: Mengubah kolom 
 date (string) menjadi format tanggal (DateType) agar bisa diurutkan secara waktu.
@@ -96,5 +95,4 @@ Analisis perbandingan **Bar Chart Top 10** menunjukkan insight anomali:
 *   Negara dengan kasus tertinggi (AS) memiliki tingkat fatalitas (CFR) sekitar **1-2%**.
 *   Sebaliknya, beberapa negara berkembang di Amerika Selatan (seperti Peru/Meksiko) bisa memiliki CFR yang jauh lebih tinggi (>5%), mengindikasikan ketimpangan sistem kesehatan atau kapasitas testing (hanya kasus parah yang terdeteksi).
 
-### D. Variabilitas Data
-**Box Plot** menunjukkan bahwa negara kepulauan besar seperti Indonesia memiliki variabilitas kasus harian yang sangat tinggi dengan banyak nilai ekstrem (*outliers*) pada puncak gelombang varian Delta, yang mengindikasikan penyebaran yang eksplosif dalam periode singkat.
+
