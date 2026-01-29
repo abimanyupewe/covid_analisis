@@ -129,9 +129,14 @@ def load_and_clean_data():
     
     # Pre-compute Global Stats untuk performa visualisasi cepat
     # Konversi ke Pandas dilakukan SESEDIKIT mungkin, hanya setelah aggregasi atau filter
-    return df_clean
+    
+    # Hitung jumlah data
+    raw_count = df.count()
+    clean_count = df_clean.count()
+    
+    return df_clean, raw_count, clean_count
 
-df_spark = load_and_clean_data()
+df_spark, raw_count, clean_count = load_and_clean_data()
 
 if df_spark is None:
     st.stop()
@@ -140,7 +145,7 @@ if df_spark is None:
 # 3. SIDEBAR CONTROLS
 # ==========================================
 with st.sidebar:
-    st.markdown("## 🎛️ Kontrol Analisis")
+    st.markdown("## Kontrol Analisis")
     
     # Ambil daftar negara (convert to list python - ringan)
     # Ambil daftar negara
@@ -161,6 +166,13 @@ with st.sidebar:
         selected_display_text = ", ".join(selected_countries)
     
     # Mode Analisis dihapus untuk penyederhanaan "Essential Dashboard"
+    st.markdown("---")
+    st.markdown("### Statistik Data")
+    st.write(f"**Total Data Mentah:** {raw_count:,}")
+    st.write(f"**Data Cleaning:** {clean_count:,}")
+    st.progress(clean_count / raw_count if raw_count > 0 else 0)
+    st.caption(f"Retention Rate: {((clean_count/raw_count)*100):.1f}%")
+    
     st.markdown("---")
     st.info("Data Engine: **Apache Spark 3.5**\nData Source: **HDFS**")
 
